@@ -1,0 +1,7 @@
+{
+  "name": "VocabBunny",
+  "description": "A kawaii-themed spaced repetition vocabulary learning app that uses AI to help you master English words with ease.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
