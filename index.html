@@ -21,6 +21,10 @@
             border-radius: 2rem;
         }
     </style>
+    <!-- Shim for process.env to prevent blank screen crashes in browser/Vercel -->
+    <script>
+      window.process = window.process || { env: { API_KEY: "" } };
+    </script>
 <script type="importmap">
 {
   "imports": {
@@ -28,7 +32,7 @@
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
     "react/": "https://esm.sh/react@^19.2.3/",
     "react": "https://esm.sh/react@^19.2.3",
-    "lucide-react": "https://esm.sh/lucide-react@^0.562.0"
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0?external=react"
   }
 }
 </script>
@@ -36,6 +40,8 @@
 </head>
 <body class="bg-[#FFF0F5] text-gray-800">
     <div id="root"></div>
+    <!-- Entry point for browser execution -->
+    <script type="module" src="./index.tsx"></script>
 <script type="module" src="/index.tsx"></script>
 </body>
 </html>

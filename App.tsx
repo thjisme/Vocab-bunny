@@ -5,7 +5,6 @@ import { getStoredUsers, saveUsers, getCurrentUser, logoutUser, updateWordInList
 import { Layout } from './components/Layout';
 import { Mascot, MascotMood } from './components/Mascot';
 import { processWords } from './services/gemini';
-// Added Brain to the imports
 import { Volume2, Plus, Trash2, CheckCircle2, XCircle, ChevronRight, Search, Target, Award, Star, Mic, RotateCcw, AlertCircle, ChevronDown, ChevronUp, Shuffle, Brain } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -174,7 +173,6 @@ const App: React.FC = () => {
       const transcript = event.results[0][0].transcript.toLowerCase().trim();
       const target = speakingWord.english.toLowerCase().trim();
       
-      // Harsher check: Exact match or very close word-by-word
       const isMatch = transcript === target;
       
       let feedback = "";
@@ -329,7 +327,7 @@ const App: React.FC = () => {
 
   const renderLogin = () => (
     <div className="flex flex-col items-center justify-center py-10 sm:py-20 animate-in fade-in zoom-in duration-700">
-      <div className={`p-8 kawaii-card kawaii-shadow w-full max-w-md ${isDarkMode ? 'bg-[#16213E] border-white/10' : 'bg-white'}`}>
+      <div className={`p-8 kawaii-card kawaii-shadow w-full max-md max-w-md ${isDarkMode ? 'bg-[#16213E] border border-white/10' : 'bg-white'}`}>
         <div className="flex justify-center mb-8"><Mascot size="w-32 h-32" mood="happy" className="animate-bounce" /></div>
         <h2 className="text-3xl font-bold text-center mb-2">{activeView === 'login' ? 'Welcome Back!' : 'Join the Hutch!'}</h2>
         <p className="text-center opacity-60 mb-8 text-sm px-4">{activeView === 'login' ? 'Bunsie missed you! Log in to continue.' : 'Create an account to start your journey.'}</p>
@@ -375,7 +373,6 @@ const App: React.FC = () => {
                 onClick={() => toggleThemeExpansion(theme)}
                 className="w-full flex items-center justify-between p-4 px-6 text-left hover:bg-pink-500/5 transition-colors"
               >
-                {/* Fixed line 378: Cast words as Word[] to fix 'unknown' type error */}
                 <h4 className={`text-lg font-bold uppercase tracking-widest ${isDarkMode ? 'text-cyan-400' : 'text-pink-500'}`}>{theme} ({(words as Word[]).length})</h4>
                 {expandedThemes.has(theme) ? <ChevronUp size={24} /> : <ChevronDown size={24} />}
               </button>
@@ -512,7 +509,7 @@ const App: React.FC = () => {
           <div className="overflow-x-auto">
             <table className="w-full text-left">
               <thead>
-                <tr className={`text-xs uppercase font-bold tracking-widest ${isDarkMode ? 'text-cyan-400' : 'opacity-50 text-gray-500'}`}>
+                <tr className={`text-xs uppercase font-bold tracking-widest ${isDarkMode ? 'text-white border-b border-white/10' : 'opacity-50 text-gray-500'}`}>
                   <th className="pb-4 px-4">Word</th>
                   <th className="pb-4 px-4">Times Quizzed</th>
                   <th className="pb-4 px-4 text-right">Avg. Accuracy</th>
@@ -522,10 +519,10 @@ const App: React.FC = () => {
                 {words.map(w => {
                   const acc = w.timesQuizzed > 0 ? Math.round(w.correctCount / w.timesQuizzed * 100) : 0;
                   return (
-                    <tr key={w.id} className="border-t border-white/5 transition-colors hover:bg-white/5">
+                    <tr key={w.id} className={`border-t border-white/5 transition-colors ${isDarkMode ? 'hover:bg-white/10' : 'hover:bg-gray-50'}`}>
                       <td className="py-4 px-4">
                         <span className={`font-bold text-lg ${isDarkMode ? 'text-white drop-shadow-sm' : 'text-gray-800'}`}>{w.english}</span>
-                        <br/><span className={`text-[10px] uppercase font-bold ${isDarkMode ? 'text-cyan-300/60' : 'opacity-40 text-gray-500'}`}>{w.theme}</span>
+                        <br/><span className={`text-[10px] uppercase font-bold ${isDarkMode ? 'text-cyan-300' : 'opacity-40 text-gray-500'}`}>{w.theme}</span>
                       </td>
                       <td className={`py-4 px-4 text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-600'}`}>
                         {w.timesQuizzed || 0}
