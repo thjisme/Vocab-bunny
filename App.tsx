@@ -60,7 +60,7 @@ const App: React.FC = () => {
 
   const getTodayString = () => new Date().toISOString().split('T')[0];
 
-  // --- AUDIO INITIALIZATION ---
+  // --- AUDIO INIT ---
   useEffect(() => {
     const loadVoices = () => {
       const voices = window.speechSynthesis.getVoices();
@@ -126,6 +126,8 @@ const App: React.FC = () => {
   // --- 3-LAYER AUDIO SYSTEM ---
   const playAudio = useCallback(async (text: string) => {
     if (!text) return;
+    
+    // Tier 1: Dictionary API (Human Audio)
     try {
       const response = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${text}`);
       if (response.ok) {
@@ -139,6 +141,7 @@ const App: React.FC = () => {
       }
     } catch (e) { console.log("API audio failed, falling back."); }
 
+    // Tier 2: Google Translate TTS (AI Quality)
     try {
       const googleAudioUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=en&client=tw-ob`;
       const audio = new Audio(googleAudioUrl);
@@ -146,6 +149,7 @@ const App: React.FC = () => {
       return; 
     } catch (e) { console.warn("Google TTS failed, falling back to robot."); }
 
+    // Tier 3: Browser Robot (Offline Fallback)
     if (!('speechSynthesis' in window)) { alert("Audio not supported."); return; }
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
@@ -396,7 +400,7 @@ const App: React.FC = () => {
                           <button onClick={() => deleteWord(word.id)} className="text-gray-400 hover:text-red-400 p-2"><Trash2 size={20} /></button>
                         </div>
                       </div>
-                      <div className="mt-2 space-y-2 border-t border-white/10 pt-4">{word.examples.map((ex, i) => (<p key={i} className={`text-xs leading-relaxed ${isDarkMode ? 'text-white/70' : 'text-gray-500'}`}><span className="text-pink-400 mr-2">•</span>{ex}</p>))}</div>
+                      <div className="mt-2 space-y-2 border-t border-white/10 pt-4">{word.examples.map((ex, i) => (<p key={i} className={`text-sm leading-relaxed ${isDarkMode ? 'text-white/70' : 'text-gray-500'}`}><span className="text-pink-400 mr-2">•</span>{ex}</p>))}</div>
                     </div>
                   ))}
                 </div>
@@ -443,8 +447,15 @@ const App: React.FC = () => {
     const progress: DailyProgress = (currentUser?.progress || { date: getTodayString(), uniqueCorrectWords: [], quizzesDone: 0 }) as DailyProgress;
     const goal = currentUser?.dailyGoal || 5;
     const totalQuizzed = words.reduce((acc, w) => acc + (w.timesQuizzed || 0), 0);
-    const totalCorrect = words.reduce((acc, w) => acc + (w.correctCount || 0), 0);
-    const avgAccuracy = totalQuizzed > 0 ? (totalCorrect / totalQuizzed * 100).toFixed(1) : 0;
+    
+    // NEW MASTERY CALCULATION: Average % accuracy across the whole library
+    const totalWords = words.length;
+    const sumAccuracy = words.reduce((acc, w) => {
+        const wordAcc = w.timesQuizzed && w.timesQuizzed > 0 ? (w.correctCount / w.timesQuizzed) : 0;
+        return acc + wordAcc;
+    }, 0);
+    const mastery = totalWords > 0 ? Math.round((sumAccuracy / totalWords) * 100) : 0;
+
     const goalPercent = Math.min(100, (progress.uniqueCorrectWords.length / goal) * 100);
     const isGoalReached = progress.uniqueCorrectWords.length >= goal;
 
@@ -482,7 +493,7 @@ const App: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-10">
           <div className={`p-6 kawaii-card shadow-sm text-center ${isDarkMode ? 'bg-[#16213E] text-white border border-white/5' : 'bg-white'}`}><p className="text-xs font-bold opacity-50 uppercase mb-1">Total Words</p><p className={`text-4xl font-bold ${isDarkMode ? 'text-white' : 'text-pink-500'}`}>{words.length}</p></div>
           <div className={`p-6 kawaii-card shadow-sm text-center ${isDarkMode ? 'bg-[#16213E] text-white border border-white/5' : 'bg-white'}`}><p className="text-xs font-bold opacity-50 uppercase mb-1">Total Quizzes</p><p className="text-4xl font-bold text-indigo-400">{totalQuizzed}</p></div>
-          <div className={`p-6 kawaii-card shadow-sm text-center ${isDarkMode ? 'bg-[#16213E] text-white border border-white/5' : 'bg-white'}`}><p className="text-xs font-bold opacity-50 uppercase mb-1">Mastery</p><p className="text-4xl font-bold text-green-400">{avgAccuracy}%</p></div>
+          <div className={`p-6 kawaii-card shadow-sm text-center ${isDarkMode ? 'bg-[#16213E] text-white border border-white/5' : 'bg-white'}`}><p className="text-xs font-bold opacity-50 uppercase mb-1">Mastery</p><p className="text-4xl font-bold text-green-400">{mastery}%</p></div>
         </div>
 
         <div className={`p-6 kawaii-card shadow-md overflow-hidden ${isDarkMode ? 'bg-[#16213E] text-white border border-white/5' : 'bg-white'}`}>
@@ -549,8 +560,20 @@ const App: React.FC = () => {
                 {!quizState.isChecking ? (<button onClick={() => setQuizState({...quizState, isChecking: true})} className={`w-full text-white font-bold p-5 rounded-2xl shadow-xl ${isDarkMode ? 'bg-cyan-500' : 'bg-pink-500'}`}>Check My Answer!</button>) : (
                   <div className="animate-in slide-in-from-bottom pt-8">
                      <div className={`p-5 rounded-3xl mb-4 ${isDarkMode ? 'bg-green-500/10 border-green-500/20' : 'bg-green-50'}`}>
-                        <p className={`font-bold ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>Correct Answer:</p>
-                        <p className={`text-lg ${isDarkMode ? 'text-green-400' : 'text-green-600'}`}>{quizState.currentWord.vietnamese}</p>
+                        <p className={`font-bold uppercase text-xs mb-2 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`}>Correct Answer</p>
+                        <h3 className={`text-2xl font-bold mb-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{quizState.currentWord.english}</h3>
+                        <div className="flex items-center gap-2 mb-4">
+                           <span className={`text-xs px-2 py-1 rounded-full font-bold uppercase ${isDarkMode ? 'bg-green-500/20 text-green-300' : 'bg-green-100 text-green-700'}`}>{quizState.currentWord.pos}</span>
+                           <span className={`text-lg ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>{quizState.currentWord.vietnamese}</span>
+                        </div>
+                        <div className={`mt-4 pt-4 border-t ${isDarkMode ? 'border-white/10' : 'border-green-200'}`}>
+                           <p className={`text-xs font-bold uppercase mb-2 opacity-70 ${isDarkMode ? 'text-white' : 'text-gray-700'}`}>Examples:</p>
+                           {quizState.currentWord.examples.map((ex, i) => (
+                              <p key={i} className={`text-sm italic mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                                 "{ex}"
+                              </p>
+                           ))}
+                        </div>
                      </div>
                      <div className="flex gap-4"><button onClick={() => handleSelfGrade(false)} className={`flex-1 p-5 rounded-2xl font-bold ${isDarkMode ? 'bg-white/10 text-white' : 'bg-gray-100'}`}>I was Wrong</button><button onClick={() => handleSelfGrade(true)} className="flex-1 bg-green-500 text-white p-5 rounded-2xl font-bold shadow-lg">I was Right!</button></div>
                   </div>
