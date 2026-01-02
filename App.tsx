@@ -37,7 +37,7 @@ const App: React.FC = () => {
   const [showConfetti, setShowConfetti] = useState(false);
   const [expandedThemes, setExpandedThemes] = useState<Set<string>>(new Set());
 
-  // Refs for Audio (Tier 3 Fallback)
+  // Refs for Fallback TTS
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
 
@@ -122,7 +122,9 @@ const App: React.FC = () => {
   const sayBunsie = (msg: string, mood: MascotMood = 'neutral', duration = 3000) => {
     setBunsieMsg(msg);
     setBunsieMood(mood);
-    setTimeout(() => setBunsieMood('neutral'), duration);
+    setTimeout(() => {
+      setBunsieMood('neutral');
+    }, duration);
   };
 
   /**
@@ -139,54 +141,90 @@ const App: React.FC = () => {
       const response = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${text}`);
       if (response.ok) {
         const data = await response.json();
+        // Search through all phonetics for a valid audio link
         const audioUrl = data[0]?.phonetics?.find((p: any) => p.audio && p.audio.length > 0)?.audio;
         if (audioUrl) {
           const audio = new Audio(audioUrl);
           await audio.play();
-          return; 
+          return; // Success! Exit.
         }
       }
-    } catch (e) { console.log("API audio failed, falling back."); }
+    } catch (e) {
+      // Continue to Tier 2
+    }
 
     // --- TIER 2: Google Translate TTS (AI Quality) ---
+    // This uses Google's high-quality voices instead of the browser default
     try {
       const googleAudioUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=en&client=tw-ob`;
       const audio = new Audio(googleAudioUrl);
       await audio.play();
-      return; 
-    } catch (e) { console.warn("Google TTS failed, falling back to browser."); }
+      return; // Success! Exit.
+    } catch (e) {
+      console.warn("Google TTS failed, falling back to browser.");
+    }
 
     // --- TIER 3: Browser Fallback (Robot) ---
-    if (!('speechSynthesis' in window)) { alert("Audio not supported."); return; }
+    if (!('speechSynthesis' in window)) {
+      alert("Audio not supported.");
+      return;
+    }
+
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
-    if (voicesRef.current.length === 0) voicesRef.current = window.speechSynthesis.getVoices();
     
+    if (voicesRef.current.length === 0) {
+      voicesRef.current = window.speechSynthesis.getVoices();
+    }
     // Try to find a good browser voice
-    const preferredVoice = voicesRef.current.find(v => v.name.includes('Google') && v.lang.includes('en')) ||
-                           voicesRef.current.find(v => v.lang === 'en-US') ||
-                           voicesRef.current.find(v => v.lang.startsWith('en'));
+    const preferredVoice = 
+      voicesRef.current.find(v => v.name.includes('Google') && v.lang.includes('en')) ||
+      voicesRef.current.find(v => v.lang === 'en-US') ||
+      voicesRef.current.find(v => v.lang.startsWith('en'));
 
     if (preferredVoice) utterance.voice = preferredVoice;
+
     utterance.lang = 'en-US';
     utterance.rate = 0.9;
     utteranceRef.current = utterance;
     window.speechSynthesis.speak(utterance);
+    
     if (window.speechSynthesis.paused) window.speechSynthesis.resume();
   }, []);
 
+  /**
+   * --- HARSH PRONUNCIATION ANALYZER ---
+   * Detects specific phonetic mistakes based on text mismatch.
+   */
   const analyzePronunciation = (target: string, transcript: string): string => {
     const t = target.toLowerCase();
     const s = transcript.toLowerCase();
+
+    // 1. Length Check (Did they say the whole word?)
     if (s.length < t.length * 0.5) return "Too short! Did you pronounce all the syllables?";
+
+    // 2. Consonant Voicing (P vs B, T vs D, etc.)
     if (t.includes('p') && s.replace(/b/g, 'p') === t) return "Watch your 'P' sound! It sounded like a 'B'. Add a puff of air!";
     if (t.includes('b') && s.replace(/p/g, 'b') === t) return "Careful! 'B' should be voiced. It sounded like 'P'.";
     if (t.includes('t') && s.replace(/d/g, 't') === t) return "Too soft! It sounded like a 'D' instead of 'T'.";
     if (t.includes('d') && s.replace(/t/g, 'd') === t) return "Too hard! It sounded like a 'T' instead of 'D'.";
-    if (t.includes('th') && (s.includes('s') || s.includes('f') || s.includes('d'))) return "Focus on the 'TH' sound!";
+
+    // 3. The 'TH' Sound
+    if (t.includes('th') && (s.includes('s') || s.includes('f') || s.includes('d'))) {
+      return "Focus on the 'TH' sound! Place your tongue between your teeth.";
+    }
+
+    // 4. L vs R Confusion
+    if ((t.includes('l') && s.includes('r')) || (t.includes('r') && s.includes('l'))) {
+      return "Careful with R and L sounds! Check your tongue position.";
+    }
+
+    // 5. Ending Sounds (Plurals/Past Tense)
     if (t.endsWith('s') && !s.endsWith('s')) return "Don't forget the 'S' sound at the end!";
     if (t.endsWith('ed') && !s.endsWith('ed') && !s.endsWith('t') && !s.endsWith('d')) return "Pronounce the past tense ending clearly.";
-    return "Close, but not quite perfect. Listen again!";
+
+    // 6. Generic Close Match
+    return "Close, but not quite perfect. Listen again and focus on the vowel sounds.";
   };
 
   // --- FIREBASE HANDLERS ---
@@ -316,23 +354,51 @@ const App: React.FC = () => {
 
   const handleSpeechRecognition = () => {
     if (!speakingWord) return;
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitRecognition;
-    if (!SpeechRecognition) { alert("Use Chrome!"); return; }
+    
+    // Improved Compatibility Check from your provided file
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Speech recognition is not supported in this browser. Try Chrome.");
+      return;
+    }
+
     const recognition = new SpeechRecognition();
     recognition.lang = 'en-US';
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
+
     setIsRecording(true);
     setRecognitionResult(null);
+
     recognition.onresult = (event: any) => {
       const transcript = event.results[0][0].transcript.toLowerCase().trim();
       const target = speakingWord.english.toLowerCase().trim();
+      
       const isMatch = transcript === target;
-      let feedback = isMatch ? "Perfect pronunciation!" : analyzePronunciation(target, transcript);
+      
+      let feedback = "";
+      if (isMatch) {
+        feedback = "Perfect pronunciation!";
+      } else {
+        feedback = analyzePronunciation(target, transcript);
+      }
+
       setRecognitionResult({ text: transcript, correct: isMatch, feedback });
-      sayBunsie(isMatch ? "Native speaker level!" : "Try again!", isMatch ? "excited" : "confused");
+      
+      if (isMatch) {
+        sayBunsie("Wow! You sounded like a native speaker!", "excited");
+      } else {
+        sayBunsie("Not quite. Check the feedback below!", "confused");
+      }
     };
-    recognition.onerror = (e: any) => { setIsRecording(false); if(e.error !== 'no-speech') sayBunsie("Mic error", "sad"); };
+
+    recognition.onerror = (e: any) => {
+      setIsRecording(false);
+      if (e.error !== 'no-speech') {
+         sayBunsie("Microphone error. Check permissions.", "sad");
+      }
+    };
+
     recognition.onend = () => setIsRecording(false);
     recognition.start();
   };
@@ -587,7 +653,7 @@ const App: React.FC = () => {
                            ))}
                         </div>
                      </div>
-                     <div className="flex gap-4"><button onClick={() => handleSelfGrade(false)} className={`flex-1 p-5 rounded-2xl font-bold ${isDarkMode ? 'bg-white/10 text-white' : 'bg-gray-100'}`}>I was Wrong</button><button onClick={() => handleSelfGrade(true)} className="flex-1 bg-green-500 text-white p-5 rounded-2xl font-bold shadow-lg">I was Right!</button></div>
+                     <div className="flex gap-4"><button onClick={() => handleSelfGrade(false)} className={`flex-1 p-5 rounded-2xl font-bold ${isDarkMode ? 'bg-white/10' : 'bg-gray-100'}`}>I was Wrong</button><button onClick={() => handleSelfGrade(true)} className="flex-1 bg-green-500 text-white p-5 rounded-2xl font-bold shadow-lg">I was Right!</button></div>
                   </div>
                 )}
               </div>
