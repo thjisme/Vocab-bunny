@@ -1,11 +1,10 @@
-
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { View, User, Word, QuizState, DailyProgress } from './types';
-import { getStoredUsers, saveUsers, getCurrentUser, logoutUser, updateWordInList } from './services/storage';
+import { getStoredUsers, saveUsers, getCurrentUser, logoutUser } from './services/storage';
 import { Layout } from './components/Layout';
 import { Mascot, MascotMood } from './components/Mascot';
 import { processWords } from './services/gemini';
-import { Volume2, Plus, Trash2, CheckCircle2, XCircle, ChevronRight, Search, Target, Award, Star, Mic, RotateCcw, AlertCircle, ChevronDown, ChevronUp, Shuffle, Brain } from 'lucide-react';
+import { Volume2, Plus, Trash2, CheckCircle2, XCircle, Search, Star, Mic, RotateCcw, ChevronDown, ChevronUp, Shuffle, Brain } from 'lucide-react';
 
 const App: React.FC = () => {
   const [activeView, setActiveView] = useState<View>('login');
@@ -19,8 +18,9 @@ const App: React.FC = () => {
   const [showConfetti, setShowConfetti] = useState(false);
   const [expandedThemes, setExpandedThemes] = useState<Set<string>>(new Set());
 
-  // Persistent reference to the utterance to prevent garbage collection
+  // Refs for Fallback TTS
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
 
   // Speaking Practice State
   const [speakingWord, setSpeakingWord] = useState<Word | null>(null);
@@ -41,6 +41,20 @@ const App: React.FC = () => {
 
   const getTodayString = () => new Date().toISOString().split('T')[0];
 
+  // --- AUDIO INITIALIZATION (For Tier 3 Fallback) ---
+  useEffect(() => {
+    const loadVoices = () => {
+      const voices = window.speechSynthesis.getVoices();
+      if (voices.length > 0) {
+        voicesRef.current = voices;
+      }
+    };
+    loadVoices();
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+    return () => { window.speechSynthesis.onvoiceschanged = null; };
+  }, []);
+
+  // --- AUTH CHECK ---
   useEffect(() => {
     const user = getCurrentUser();
     if (user) {
@@ -74,24 +88,107 @@ const App: React.FC = () => {
     }, duration);
   };
 
-  const playTTS = (text: string) => {
+  /**
+   * --- 3-LAYER AUDIO SYSTEM ---
+   * 1. Dictionary API (Human MP3)
+   * 2. Google Translate TTS (High Quality AI)
+   * 3. Browser SpeechSynthesis (Offline Robot)
+   */
+  const playAudio = useCallback(async (text: string) => {
+    if (!text) return;
+
+    // --- TIER 1: Dictionary API (Real Human Audio) ---
+    try {
+      const response = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${text}`);
+      if (response.ok) {
+        const data = await response.json();
+        // Search through all phonetics for a valid audio link
+        const audioUrl = data[0]?.phonetics?.find((p: any) => p.audio && p.audio.length > 0)?.audio;
+        if (audioUrl) {
+          const audio = new Audio(audioUrl);
+          await audio.play();
+          return; // Success! Exit.
+        }
+      }
+    } catch (e) {
+      // Continue to Tier 2
+    }
+
+    // --- TIER 2: Google Translate TTS (AI Quality) ---
+    // This uses Google's high-quality voices instead of the browser default
+    try {
+      const googleAudioUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=en&client=tw-ob`;
+      const audio = new Audio(googleAudioUrl);
+      await audio.play();
+      return; // Success! Exit.
+    } catch (e) {
+      console.warn("Google TTS failed, falling back to browser.");
+    }
+
+    // --- TIER 3: Browser Fallback (Robot) ---
     if (!('speechSynthesis' in window)) {
-      alert("Your browser doesn't support text-to-speech!");
+      alert("Audio not supported.");
       return;
     }
+
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
+    
+    if (voicesRef.current.length === 0) {
+      voicesRef.current = window.speechSynthesis.getVoices();
+    }
+    // Try to find a good browser voice
+    const preferredVoice = 
+      voicesRef.current.find(v => v.name.includes('Google') && v.lang.includes('en')) ||
+      voicesRef.current.find(v => v.lang === 'en-US') ||
+      voicesRef.current.find(v => v.lang.startsWith('en'));
+
+    if (preferredVoice) utterance.voice = preferredVoice;
+
     utterance.lang = 'en-US';
-    utterance.rate = 0.95;
-    utterance.pitch = 1.0;
+    utterance.rate = 0.9;
     utteranceRef.current = utterance;
-    utterance.onerror = (event) => console.error('SpeechSynthesisUtterance error', event);
-    setTimeout(() => {
-      if (window.speechSynthesis.paused) window.speechSynthesis.resume();
-      window.speechSynthesis.speak(utterance);
-    }, 100);
+    window.speechSynthesis.speak(utterance);
+    
+    if (window.speechSynthesis.paused) window.speechSynthesis.resume();
+  }, []);
+
+  /**
+   * --- HARSH PRONUNCIATION ANALYZER ---
+   * Detects specific phonetic mistakes based on text mismatch.
+   */
+  const analyzePronunciation = (target: string, transcript: string): string => {
+    const t = target.toLowerCase();
+    const s = transcript.toLowerCase();
+
+    // 1. Length Check (Did they say the whole word?)
+    if (s.length < t.length * 0.5) return "Too short! Did you pronounce all the syllables?";
+
+    // 2. Consonant Voicing (P vs B, T vs D, etc.)
+    if (t.includes('p') && s.replace(/b/g, 'p') === t) return "Watch your 'P' sound! It sounded like a 'B'. Add a puff of air!";
+    if (t.includes('b') && s.replace(/p/g, 'b') === t) return "Careful! 'B' should be voiced. It sounded like 'P'.";
+    if (t.includes('t') && s.replace(/d/g, 't') === t) return "Too soft! It sounded like a 'D' instead of 'T'.";
+    if (t.includes('d') && s.replace(/t/g, 'd') === t) return "Too hard! It sounded like a 'T' instead of 'D'.";
+
+    // 3. The 'TH' Sound
+    if (t.includes('th') && (s.includes('s') || s.includes('f') || s.includes('d'))) {
+      return "Focus on the 'TH' sound! Place your tongue between your teeth.";
+    }
+
+    // 4. L vs R Confusion
+    if ((t.includes('l') && s.includes('r')) || (t.includes('r') && s.includes('l'))) {
+      return "Careful with R and L sounds! Check your tongue position.";
+    }
+
+    // 5. Ending Sounds (Plurals/Past Tense)
+    if (t.endsWith('s') && !s.endsWith('s')) return "Don't forget the 'S' sound at the end!";
+    if (t.endsWith('ed') && !s.endsWith('ed') && !s.endsWith('t') && !s.endsWith('d')) return "Pronounce the past tense ending clearly.";
+
+    // 6. Generic Close Match
+    return "Close, but not quite perfect. Listen again and focus on the vowel sounds.";
   };
 
+  // --- AUTH HANDLERS ---
   const handleAuth = (type: 'login' | 'register') => {
     const users = getStoredUsers();
     if (type === 'login') {
@@ -149,7 +246,7 @@ const App: React.FC = () => {
       const randomWord = currentUser.wordList[Math.floor(Math.random() * currentUser.wordList.length)];
       setSpeakingWord(randomWord);
     }
-    sayBunsie("Listen first, then repeat!", "neutral");
+    sayBunsie("Listen closely to the intonation!", "neutral");
   };
 
   const handleSpeechRecognition = () => {
@@ -157,7 +254,7 @@ const App: React.FC = () => {
     
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      alert("Speech recognition is not supported in this browser.");
+      alert("Speech recognition is not supported in this browser. Try Chrome.");
       return;
     }
 
@@ -173,28 +270,31 @@ const App: React.FC = () => {
       const transcript = event.results[0][0].transcript.toLowerCase().trim();
       const target = speakingWord.english.toLowerCase().trim();
       
+      // Strict Exact Match required for "Correct"
       const isMatch = transcript === target;
       
       let feedback = "";
-      if (!isMatch) {
-        if (transcript.length < target.length * 0.7) {
-          feedback = "Too short! Make sure to say the whole word clearly.";
-        } else {
-          feedback = "Almost, but the pronunciation isn't quite right. Listen again!";
-        }
+      if (isMatch) {
+        feedback = "Perfect pronunciation!";
+      } else {
+        // Run the harsher analyzer
+        feedback = analyzePronunciation(target, transcript);
       }
 
       setRecognitionResult({ text: transcript, correct: isMatch, feedback });
+      
       if (isMatch) {
-        sayBunsie("Perfect! Your pronunciation is spot on!", "excited");
+        sayBunsie("Wow! You sounded like a native speaker!", "excited");
       } else {
-        sayBunsie(`I heard "${transcript}". Let's try once more!`, "confused");
+        sayBunsie("Not quite. Check the feedback below!", "confused");
       }
     };
 
-    recognition.onerror = () => {
+    recognition.onerror = (e: any) => {
       setIsRecording(false);
-      sayBunsie("Oh no, I couldn't hear you clearly!", "confused");
+      if (e.error !== 'no-speech') {
+         sayBunsie("Microphone error. Check permissions.", "sad");
+      }
     };
 
     recognition.onend = () => setIsRecording(false);
@@ -229,8 +329,8 @@ const App: React.FC = () => {
         sayBunsie(`Added ${newWords.length} new words!`, "excited");
       }
     } catch (e) {
-      console.error("Gemini processing error:", e);
-      sayBunsie("Something went wrong processing those words.", "confused");
+      console.error("Processing error:", e);
+      sayBunsie("Couldn't process words. Check API Key.", "confused");
     } finally {
       setIsLoading(false);
     }
@@ -299,7 +399,7 @@ const App: React.FC = () => {
     setCurrentUser(users[userIdx]);
     
     if (isCorrect) sayBunsie("Amazing! Keep it up!", "happy");
-    else sayBunsie("It's okay, mistakes are for learning!", "neutral");
+    else sayBunsie("Keep trying! You'll get it.", "neutral");
 
     setQuizState({ ...quizState, currentWord: null, isChecking: false });
   };
@@ -389,7 +489,9 @@ const App: React.FC = () => {
                           <p className={`text-sm italic font-medium ${isDarkMode ? 'text-pink-300' : 'text-gray-600'}`}>{word.vietnamese}</p>
                         </div>
                         <div className="flex gap-2">
-                          <button onClick={() => {
+                          <button 
+                             title="Star this word"
+                             onClick={() => {
                              const users = getStoredUsers();
                              const idx = users.findIndex(u => u.id === currentUser?.id);
                              if (idx > -1) {
@@ -400,8 +502,20 @@ const App: React.FC = () => {
                           }} className={`p-2 rounded-xl transition-all ${word.isStarred ? 'text-yellow-400 scale-110' : 'text-gray-300'}`}>
                             <Star size={20} fill={word.isStarred ? "currentColor" : "none"} />
                           </button>
-                          <button onClick={() => playTTS(word.english)} className={`p-4 rounded-xl transition-all active:scale-125 ${isDarkMode ? 'bg-cyan-900/40 text-cyan-300' : 'bg-pink-50 text-pink-500'}`}><Volume2 size={24} /></button>
-                          <button onClick={() => deleteWord(word.id)} className="text-gray-400 hover:text-red-400 p-2"><Trash2 size={20} /></button>
+                          <button 
+                            title="Play pronunciation"
+                            onClick={() => playAudio(word.english)} 
+                            className={`p-4 rounded-xl transition-all active:scale-125 hover:rotate-6 ${isDarkMode ? 'bg-cyan-900/40 text-cyan-300' : 'bg-pink-50 text-pink-500'}`}
+                          >
+                            <Volume2 size={24} />
+                          </button>
+                          <button 
+                            title="Delete word"
+                            onClick={() => deleteWord(word.id)} 
+                            className="text-gray-400 hover:text-red-400 p-2"
+                          >
+                            <Trash2 size={20} />
+                          </button>
                         </div>
                       </div>
                       <div className="mt-2 space-y-2 border-t border-white/10 pt-4">
@@ -436,7 +550,7 @@ const App: React.FC = () => {
           <div className="animate-in zoom-in duration-300">
             <h2 className={`text-6xl font-bold mb-10 tracking-tight ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>{speakingWord.english}</h2>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-6 mb-10">
-              <button onClick={() => playTTS(speakingWord.english)} className={`flex flex-col items-center gap-2 p-6 rounded-3xl transition-all hover:scale-105 ${isDarkMode ? 'bg-cyan-500/10 text-cyan-400 border-cyan-400/30' : 'bg-pink-50 text-pink-500'}`}><Volume2 size={32} /><span className="text-xs font-bold uppercase">Listen</span></button>
+              <button onClick={() => playAudio(speakingWord.english)} className={`flex flex-col items-center gap-2 p-6 rounded-3xl transition-all hover:scale-105 ${isDarkMode ? 'bg-cyan-500/10 text-cyan-400 border-cyan-400/30' : 'bg-pink-50 text-pink-500'}`}><Volume2 size={32} /><span className="text-xs font-bold uppercase">Listen</span></button>
               <button onClick={handleSpeechRecognition} disabled={isRecording} className={`flex flex-col items-center gap-2 p-6 rounded-3xl transition-all hover:scale-105 shadow-xl ${isRecording ? 'animate-pulse bg-red-500 text-white' : isDarkMode ? 'bg-white text-indigo-900' : 'bg-indigo-600 text-white'}`}><Mic size={32} /><span className="text-xs font-bold uppercase">{isRecording ? 'Listening...' : 'Speak'}</span></button>
             </div>
             {recognitionResult && (
@@ -560,7 +674,13 @@ const App: React.FC = () => {
           <div className={`p-8 kawaii-card shadow-2xl ${isDarkMode ? 'bg-[#16213E]' : 'bg-white'}`}>
             <div className="text-center mb-10">
               <h2 className={`text-6xl font-black mb-6 tracking-tight ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>{quizState.currentWord.english}</h2>
-              <button onClick={() => playTTS(quizState.currentWord!.english)} className={`p-4 rounded-3xl ${isDarkMode ? 'bg-cyan-500 text-white' : 'bg-pink-100 text-pink-500'}`}><Volume2 size={32} /></button>
+              <button 
+                title="Play pronunciation"
+                onClick={() => playAudio(quizState.currentWord!.english)} 
+                className={`p-4 rounded-3xl transition-all active:scale-110 ${isDarkMode ? 'bg-cyan-500 text-white' : 'bg-pink-100 text-pink-500'}`}
+              >
+                <Volume2 size={32} />
+              </button>
             </div>
             <div className="space-y-6">
               <input disabled={quizState.isChecking} placeholder="POS" className={`w-full p-4 rounded-2xl border-2 transition-all ${isDarkMode ? 'bg-[#1A1A2E] border-white/10 text-white focus:border-cyan-500' : 'bg-gray-50 border-gray-100 focus:border-pink-300'}`} value={quizState.userInput.pos} onChange={e => setQuizState({...quizState, userInput: {...quizState.userInput, pos: e.target.value}})} />
