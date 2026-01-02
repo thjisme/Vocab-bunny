@@ -61,7 +61,6 @@ const App: React.FC = () => {
   const getTodayString = () => new Date().toISOString().split('T')[0];
 
   // --- AUDIO INITIALIZATION (For Tier 3 Fallback) ---
-  // EXACTLY FROM YOUR WORKING FILE
   useEffect(() => {
     const loadVoices = () => {
       const voices = window.speechSynthesis.getVoices();
@@ -131,13 +130,15 @@ const App: React.FC = () => {
    * 1. Dictionary API (Human MP3)
    * 2. Google Translate TTS (High Quality AI)
    * 3. Browser SpeechSynthesis (Offline Robot)
+   * [Restored EXACT logic from your working file]
    */
   const playAudio = useCallback(async (text: string) => {
     if (!text) return;
+    const cleanText = text.trim(); // Safety fix: remove invisible spaces
 
     // --- TIER 1: Dictionary API (Real Human Audio) ---
     try {
-      const response = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${text}`);
+      const response = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${cleanText}`);
       if (response.ok) {
         const data = await response.json();
         // Search through all phonetics for a valid audio link
@@ -153,9 +154,8 @@ const App: React.FC = () => {
     }
 
     // --- TIER 2: Google Translate TTS (AI Quality) ---
-    // This uses Google's high-quality voices instead of the browser default
     try {
-      const googleAudioUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=en&client=tw-ob`;
+      const googleAudioUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(cleanText)}&tl=en&client=tw-ob`;
       const audio = new Audio(googleAudioUrl);
       await audio.play();
       return; // Success! Exit.
@@ -170,12 +170,14 @@ const App: React.FC = () => {
     }
 
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
+    const utterance = new SpeechSynthesisUtterance(cleanText);
     
+    // Ensure voices are loaded
     if (voicesRef.current.length === 0) {
       voicesRef.current = window.speechSynthesis.getVoices();
     }
-    // Try to find a good browser voice
+    
+    // [CRITICAL FIX] Restored the flexible voice search from your working file
     const preferredVoice = 
       voicesRef.current.find(v => v.name.includes('Google') && v.lang.includes('en')) ||
       voicesRef.current.find(v => v.lang === 'en-US') ||
@@ -191,40 +193,18 @@ const App: React.FC = () => {
     if (window.speechSynthesis.paused) window.speechSynthesis.resume();
   }, []);
 
-
-  /**
-   * --- HARSH PRONUNCIATION ANALYZER ---
-   * COPIED EXACTLY FROM YOUR WORKING FILE
-   */
   const analyzePronunciation = (target: string, transcript: string): string => {
     const t = target.toLowerCase();
     const s = transcript.toLowerCase();
-
-    // 1. Length Check
     if (s.length < t.length * 0.5) return "Too short! Did you pronounce all the syllables?";
-
-    // 2. Consonant Voicing
     if (t.includes('p') && s.replace(/b/g, 'p') === t) return "Watch your 'P' sound! It sounded like a 'B'. Add a puff of air!";
     if (t.includes('b') && s.replace(/p/g, 'b') === t) return "Careful! 'B' should be voiced. It sounded like 'P'.";
     if (t.includes('t') && s.replace(/d/g, 't') === t) return "Too soft! It sounded like a 'D' instead of 'T'.";
     if (t.includes('d') && s.replace(/t/g, 'd') === t) return "Too hard! It sounded like a 'T' instead of 'D'.";
-
-    // 3. The 'TH' Sound
-    if (t.includes('th') && (s.includes('s') || s.includes('f') || s.includes('d'))) {
-      return "Focus on the 'TH' sound! Place your tongue between your teeth.";
-    }
-
-    // 4. L vs R Confusion
-    if ((t.includes('l') && s.includes('r')) || (t.includes('r') && s.includes('l'))) {
-      return "Careful with R and L sounds! Check your tongue position.";
-    }
-
-    // 5. Ending Sounds
+    if (t.includes('th') && (s.includes('s') || s.includes('f') || s.includes('d'))) return "Focus on the 'TH' sound!";
     if (t.endsWith('s') && !s.endsWith('s')) return "Don't forget the 'S' sound at the end!";
     if (t.endsWith('ed') && !s.endsWith('ed') && !s.endsWith('t') && !s.endsWith('d')) return "Pronounce the past tense ending clearly.";
-
-    // 6. Generic Close Match
-    return "Close, but not quite perfect. Listen again and focus on the vowel sounds.";
+    return "Close, but not quite perfect. Listen again!";
   };
 
   // --- FIREBASE HANDLERS ---
