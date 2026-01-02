@@ -37,7 +37,7 @@ const App: React.FC = () => {
   const [showConfetti, setShowConfetti] = useState(false);
   const [expandedThemes, setExpandedThemes] = useState<Set<string>>(new Set());
 
-  // Refs for Audio
+  // Refs for Audio (Tier 3 Fallback)
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
 
@@ -60,11 +60,13 @@ const App: React.FC = () => {
 
   const getTodayString = () => new Date().toISOString().split('T')[0];
 
-  // --- AUDIO INIT ---
+  // --- AUDIO INITIALIZATION (For Tier 3 Fallback) ---
   useEffect(() => {
     const loadVoices = () => {
       const voices = window.speechSynthesis.getVoices();
-      if (voices.length > 0) voicesRef.current = voices;
+      if (voices.length > 0) {
+        voicesRef.current = voices;
+      }
     };
     loadVoices();
     window.speechSynthesis.onvoiceschanged = loadVoices;
@@ -123,11 +125,16 @@ const App: React.FC = () => {
     setTimeout(() => setBunsieMood('neutral'), duration);
   };
 
-  // --- 3-LAYER AUDIO SYSTEM ---
+  /**
+   * --- 3-LAYER AUDIO SYSTEM ---
+   * 1. Dictionary API (Human MP3)
+   * 2. Google Translate TTS (High Quality AI)
+   * 3. Browser SpeechSynthesis (Offline Robot)
+   */
   const playAudio = useCallback(async (text: string) => {
     if (!text) return;
-    
-    // Tier 1: Dictionary API (Human Audio)
+
+    // --- TIER 1: Dictionary API (Real Human Audio) ---
     try {
       const response = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${text}`);
       if (response.ok) {
@@ -141,20 +148,25 @@ const App: React.FC = () => {
       }
     } catch (e) { console.log("API audio failed, falling back."); }
 
-    // Tier 2: Google Translate TTS (AI Quality)
+    // --- TIER 2: Google Translate TTS (AI Quality) ---
     try {
       const googleAudioUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=en&client=tw-ob`;
       const audio = new Audio(googleAudioUrl);
       await audio.play();
       return; 
-    } catch (e) { console.warn("Google TTS failed, falling back to robot."); }
+    } catch (e) { console.warn("Google TTS failed, falling back to browser."); }
 
-    // Tier 3: Browser Robot (Offline Fallback)
+    // --- TIER 3: Browser Fallback (Robot) ---
     if (!('speechSynthesis' in window)) { alert("Audio not supported."); return; }
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     if (voicesRef.current.length === 0) voicesRef.current = window.speechSynthesis.getVoices();
-    const preferredVoice = voicesRef.current.find(v => v.name === 'Google US English') || voicesRef.current.find(v => v.lang.startsWith('en'));
+    
+    // Try to find a good browser voice
+    const preferredVoice = voicesRef.current.find(v => v.name.includes('Google') && v.lang.includes('en')) ||
+                           voicesRef.current.find(v => v.lang === 'en-US') ||
+                           voicesRef.current.find(v => v.lang.startsWith('en'));
+
     if (preferredVoice) utterance.voice = preferredVoice;
     utterance.lang = 'en-US';
     utterance.rate = 0.9;
@@ -167,17 +179,17 @@ const App: React.FC = () => {
     const t = target.toLowerCase();
     const s = transcript.toLowerCase();
     if (s.length < t.length * 0.5) return "Too short! Did you pronounce all the syllables?";
-    if (t.includes('p') && s.replace(/b/g, 'p') === t) return "Watch your 'P' sound! It sounded like a 'B'.";
+    if (t.includes('p') && s.replace(/b/g, 'p') === t) return "Watch your 'P' sound! It sounded like a 'B'. Add a puff of air!";
     if (t.includes('b') && s.replace(/p/g, 'b') === t) return "Careful! 'B' should be voiced. It sounded like 'P'.";
-    if (t.includes('t') && s.replace(/d/g, 't') === t) return "Too soft! It sounded like a 'D'.";
-    if (t.includes('d') && s.replace(/t/g, 'd') === t) return "Too hard! It sounded like a 'T'.";
+    if (t.includes('t') && s.replace(/d/g, 't') === t) return "Too soft! It sounded like a 'D' instead of 'T'.";
+    if (t.includes('d') && s.replace(/t/g, 'd') === t) return "Too hard! It sounded like a 'T' instead of 'D'.";
     if (t.includes('th') && (s.includes('s') || s.includes('f') || s.includes('d'))) return "Focus on the 'TH' sound!";
     if (t.endsWith('s') && !s.endsWith('s')) return "Don't forget the 'S' sound at the end!";
     if (t.endsWith('ed') && !s.endsWith('ed') && !s.endsWith('t') && !s.endsWith('d')) return "Pronounce the past tense ending clearly.";
     return "Close, but not quite perfect. Listen again!";
   };
 
-  // --- HANDLERS ---
+  // --- FIREBASE HANDLERS ---
   const handleAuth = async (type: 'login' | 'register') => {
     setIsLoading(true);
     try {
@@ -299,7 +311,7 @@ const App: React.FC = () => {
       const randomWord = currentUser.wordList[Math.floor(Math.random() * currentUser.wordList.length)];
       setSpeakingWord(randomWord);
     }
-    sayBunsie("Listen first, then repeat!", "neutral");
+    sayBunsie("Listen closely to the intonation!", "neutral");
   };
 
   const handleSpeechRecognition = () => {
@@ -400,7 +412,7 @@ const App: React.FC = () => {
                           <button onClick={() => deleteWord(word.id)} className="text-gray-400 hover:text-red-400 p-2"><Trash2 size={20} /></button>
                         </div>
                       </div>
-                      <div className="mt-2 space-y-2 border-t border-white/10 pt-4">{word.examples.map((ex, i) => (<p key={i} className={`text-sm leading-relaxed ${isDarkMode ? 'text-white/70' : 'text-gray-500'}`}><span className="text-pink-400 mr-2">•</span>{ex}</p>))}</div>
+                      <div className="mt-2 space-y-2 border-t border-white/10 pt-4">{word.examples.map((ex, i) => (<p key={i} className={`text-sm leading-relaxed ${isDarkMode ? 'text-white/80' : 'text-gray-600'}`}><span className="text-pink-400 mr-2">•</span>{ex}</p>))}</div>
                     </div>
                   ))}
                 </div>
@@ -448,7 +460,7 @@ const App: React.FC = () => {
     const goal = currentUser?.dailyGoal || 5;
     const totalQuizzed = words.reduce((acc, w) => acc + (w.timesQuizzed || 0), 0);
     
-    // NEW MASTERY CALCULATION: Average % accuracy across the whole library
+    // NEW MASTERY CALCULATION: Sum of all word accuracies / Total Words
     const totalWords = words.length;
     const sumAccuracy = words.reduce((acc, w) => {
         const wordAcc = w.timesQuizzed && w.timesQuizzed > 0 ? (w.correctCount / w.timesQuizzed) : 0;
