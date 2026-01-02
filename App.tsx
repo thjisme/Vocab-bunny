@@ -134,63 +134,89 @@ const App: React.FC = () => {
    */
   const playAudio = useCallback(async (text: string) => {
     if (!text) return;
-    const cleanText = text.trim(); // Safety fix: remove invisible spaces
+    const cleanText = text.trim();
+    console.log(`🔊 Attempting to play: "${cleanText}"`);
 
-    // --- TIER 1: Dictionary API (Real Human Audio) ---
+    // --- TIER 1: Dictionary API (Human Audio) ---
     try {
       const response = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${cleanText}`);
       if (response.ok) {
         const data = await response.json();
-        // Search through all phonetics for a valid audio link
-        const audioUrl = data[0]?.phonetics?.find((p: any) => p.audio && p.audio.length > 0)?.audio;
-        if (audioUrl) {
-          const audio = new Audio(audioUrl);
+        // Look through ALL definitions for audio
+        const audioEntry = data
+          .flatMap((entry: any) => entry.phonetics || [])
+          .find((p: any) => p.audio && p.audio !== '');
+        
+        if (audioEntry && audioEntry.audio) {
+          console.log("✅ Playing Tier 1 (Human Dictionary)");
+          const audio = new Audio(audioEntry.audio);
           await audio.play();
-          return; // Success! Exit.
+          return; // Exit if successful
         }
       }
     } catch (e) {
-      // Continue to Tier 2
+      console.log("⚠️ Tier 1 failed or word not found.");
     }
 
-    // --- TIER 2: Google Translate TTS (AI Quality) ---
+    // --- TIER 2: Google Translate TTS (The "Hack") ---
+    // We try this next. It works on many devices, but might fail on Firebase.
     try {
+      console.log("👉 Trying Tier 2 (Google TTS)");
       const googleAudioUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(cleanText)}&tl=en&client=tw-ob`;
       const audio = new Audio(googleAudioUrl);
       await audio.play();
-      return; // Success! Exit.
+      console.log("✅ Playing Tier 2 (Google)");
+      return; // Exit if successful
     } catch (e) {
-      console.warn("Google TTS failed, falling back to browser.");
+      console.log("⚠️ Tier 2 failed (likely blocked by browser/network).");
     }
 
-    // --- TIER 3: Browser Fallback (Robot) ---
+    // --- TIER 3: Browser Robot (Reliable Fallback) ---
+    // If we get here, we use the device's built-in voice.
     if (!('speechSynthesis' in window)) {
-      alert("Audio not supported.");
+      alert("Audio not supported on this device.");
       return;
     }
 
+    console.log("🤖 Tier 3: Engaging Robot Voice");
+    
+    // 1. Clear any stuck audio
     window.speechSynthesis.cancel();
+
+    // 2. Setup the phrase
     const utterance = new SpeechSynthesisUtterance(cleanText);
-    
-    // Ensure voices are loaded
-    if (voicesRef.current.length === 0) {
-      voicesRef.current = window.speechSynthesis.getVoices();
-    }
-    
-    // [CRITICAL FIX] Restored the flexible voice search from your working file
-    const preferredVoice = 
-      voicesRef.current.find(v => v.name.includes('Google') && v.lang.includes('en')) ||
-      voicesRef.current.find(v => v.lang === 'en-US') ||
-      voicesRef.current.find(v => v.lang.startsWith('en'));
-
-    if (preferredVoice) utterance.voice = preferredVoice;
-
+    utterance.rate = 0.9; // Slightly slower for clarity
     utterance.lang = 'en-US';
-    utterance.rate = 0.9;
-    utteranceRef.current = utterance;
+
+    // 3. Force-load voices (Fix for Mac/iPad empty voice list)
+    let voices = window.speechSynthesis.getVoices();
+    if (voices.length === 0) {
+        // If empty, we just let the default voice speak, 
+        // we don't try to find a fancy one.
+        console.log("⚠️ No voices found list, using Default.");
+    } else {
+        // Try to find a high-quality voice
+        const preferredVoice = 
+          voices.find(v => v.name === "Samantha") || // Best Mac voice
+          voices.find(v => v.name.includes('Google US')) || 
+          voices.find(v => v.lang === 'en-US');
+        
+        if (preferredVoice) {
+            utterance.voice = preferredVoice;
+            console.log(`🗣️ Using voice: ${preferredVoice.name}`);
+        }
+    }
+
+    // 4. Speak
+    utteranceRef.current = utterance; // Save ref to prevent memory cleanup
     window.speechSynthesis.speak(utterance);
     
-    if (window.speechSynthesis.paused) window.speechSynthesis.resume();
+    // 5. Force Resume (Fix for iOS Safari getting stuck)
+    if (window.speechSynthesis.paused) {
+        console.log("▶️ Force resuming paused engine");
+        window.speechSynthesis.resume();
+    }
+
   }, []);
 
   const analyzePronunciation = (target: string, transcript: string): string => {
