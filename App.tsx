@@ -131,15 +131,13 @@ const App: React.FC = () => {
    * 1. Dictionary API (Human MP3)
    * 2. Google Translate TTS (High Quality AI)
    * 3. Browser SpeechSynthesis (Offline Robot)
-   * COPIED EXACTLY FROM YOUR WORKING FILE (with .trim() fix)
    */
   const playAudio = useCallback(async (text: string) => {
     if (!text) return;
-    const cleanText = text.trim(); // FIX: Removes invisible spaces that break audio
 
     // --- TIER 1: Dictionary API (Real Human Audio) ---
     try {
-      const response = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${cleanText}`);
+      const response = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${text}`);
       if (response.ok) {
         const data = await response.json();
         // Search through all phonetics for a valid audio link
@@ -155,8 +153,9 @@ const App: React.FC = () => {
     }
 
     // --- TIER 2: Google Translate TTS (AI Quality) ---
+    // This uses Google's high-quality voices instead of the browser default
     try {
-      const googleAudioUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(cleanText)}&tl=en&client=tw-ob`;
+      const googleAudioUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=en&client=tw-ob`;
       const audio = new Audio(googleAudioUrl);
       await audio.play();
       return; // Success! Exit.
@@ -171,7 +170,7 @@ const App: React.FC = () => {
     }
 
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(cleanText);
+    const utterance = new SpeechSynthesisUtterance(text);
     
     if (voicesRef.current.length === 0) {
       voicesRef.current = window.speechSynthesis.getVoices();
@@ -191,6 +190,7 @@ const App: React.FC = () => {
     
     if (window.speechSynthesis.paused) window.speechSynthesis.resume();
   }, []);
+
 
   /**
    * --- HARSH PRONUNCIATION ANALYZER ---
