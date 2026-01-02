@@ -135,87 +135,74 @@ const App: React.FC = () => {
   const playAudio = useCallback(async (text: string) => {
     if (!text) return;
     const cleanText = text.trim();
-    console.log(`🔊 Attempting to play: "${cleanText}"`);
 
-    // --- TIER 1: Dictionary API (Human Audio) ---
+    // --- TIER 1: Dictionary API (Real Human Audio) ---
+    // Improved: Scans ALL definitions, not just the first one.
+    // This fixes words like "actress" where audio is often in the second entry.
     try {
       const response = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${cleanText}`);
       if (response.ok) {
         const data = await response.json();
-        // Look through ALL definitions for audio
         const audioEntry = data
-          .flatMap((entry: any) => entry.phonetics || [])
-          .find((p: any) => p.audio && p.audio !== '');
+          .flatMap((entry: any) => entry.phonetics || []) // Collect all audio options
+          .find((p: any) => p.audio && p.audio !== '');   // Find the first valid one
         
         if (audioEntry && audioEntry.audio) {
-          console.log("✅ Playing Tier 1 (Human Dictionary)");
           const audio = new Audio(audioEntry.audio);
           await audio.play();
-          return; // Exit if successful
+          return; // Success! We stop here.
         }
       }
     } catch (e) {
-      console.log("⚠️ Tier 1 failed or word not found.");
+      // API failed or word not found (e.g. "self-paced"), continue to next tier.
     }
 
     // --- TIER 2: Google Translate TTS (The "Hack") ---
-    // We try this next. It works on many devices, but might fail on Firebase.
+    // We try this, but we expect it might fail on Vercel/Firebase.
     try {
-      console.log("👉 Trying Tier 2 (Google TTS)");
       const googleAudioUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(cleanText)}&tl=en&client=tw-ob`;
       const audio = new Audio(googleAudioUrl);
       await audio.play();
-      console.log("✅ Playing Tier 2 (Google)");
-      return; // Exit if successful
+      return; // Success! We stop here.
     } catch (e) {
-      console.log("⚠️ Tier 2 failed (likely blocked by browser/network).");
+      console.warn("Google TTS failed (likely blocked by Vercel/Firebase). Switching to System Voice.");
     }
 
-    // --- TIER 3: Browser Robot (Reliable Fallback) ---
-    // If we get here, we use the device's built-in voice.
-    if (!('speechSynthesis' in window)) {
-      alert("Audio not supported on this device.");
-      return;
-    }
+    // --- TIER 3: Browser Fallback (Reliable Robot) ---
+    // This is what will save you on Vercel when Google blocks the request.
+    if (!('speechSynthesis' in window)) return;
 
-    console.log("🤖 Tier 3: Engaging Robot Voice");
-    
-    // 1. Clear any stuck audio
+    // 1. Cancel any previous speech to avoid overlap
     window.speechSynthesis.cancel();
 
-    // 2. Setup the phrase
     const utterance = new SpeechSynthesisUtterance(cleanText);
-    utterance.rate = 0.9; // Slightly slower for clarity
-    utterance.lang = 'en-US';
-
-    // 3. Force-load voices (Fix for Mac/iPad empty voice list)
+    
+    // 2. CRITICAL FIX for iPad/Mac: 
+    // We grab the voices *right now*. If the list is empty, we ask for them again.
     let voices = window.speechSynthesis.getVoices();
     if (voices.length === 0) {
-        // If empty, we just let the default voice speak, 
-        // we don't try to find a fancy one.
-        console.log("⚠️ No voices found list, using Default.");
-    } else {
-        // Try to find a high-quality voice
-        const preferredVoice = 
-          voices.find(v => v.name === "Samantha") || // Best Mac voice
-          voices.find(v => v.name.includes('Google US')) || 
-          voices.find(v => v.lang === 'en-US');
-        
-        if (preferredVoice) {
-            utterance.voice = preferredVoice;
-            console.log(`🗣️ Using voice: ${preferredVoice.name}`);
-        }
+       // Sometimes needed for Safari to wake up the voice engine
+       voices = window.speechSynthesis.getVoices(); 
     }
 
+    // 3. Select a voice that actually exists on Mac/iOS
+    // "Samantha" is the default high-quality Mac voice.
+    const preferredVoice = 
+      voices.find(v => v.name === "Samantha") || 
+      voices.find(v => v.name.includes('Google') && v.lang.includes('en')) ||
+      voices.find(v => v.lang === 'en-US');
+
+    if (preferredVoice) utterance.voice = preferredVoice;
+
+    utterance.lang = 'en-US';
+    utterance.rate = 0.9; // Slightly slower is better for learning
+    
     // 4. Speak
-    utteranceRef.current = utterance; // Save ref to prevent memory cleanup
+    utteranceRef.current = utterance; // Keep a reference so the browser doesn't delete it mid-sentence
     window.speechSynthesis.speak(utterance);
     
-    // 5. Force Resume (Fix for iOS Safari getting stuck)
-    if (window.speechSynthesis.paused) {
-        console.log("▶️ Force resuming paused engine");
-        window.speechSynthesis.resume();
-    }
+    // 5. iOS Safari Fix: If it starts "paused", force it to resume.
+    if (window.speechSynthesis.paused) window.speechSynthesis.resume();
 
   }, []);
 
