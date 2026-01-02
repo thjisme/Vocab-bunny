@@ -37,7 +37,7 @@ const App: React.FC = () => {
   const [showConfetti, setShowConfetti] = useState(false);
   const [expandedThemes, setExpandedThemes] = useState<Set<string>>(new Set());
 
-  // Refs for Fallback TTS
+  // Refs for Audio (Tier 3 Fallback)
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
 
@@ -61,6 +61,7 @@ const App: React.FC = () => {
   const getTodayString = () => new Date().toISOString().split('T')[0];
 
   // --- AUDIO INITIALIZATION (For Tier 3 Fallback) ---
+  // EXACTLY FROM YOUR WORKING FILE
   useEffect(() => {
     const loadVoices = () => {
       const voices = window.speechSynthesis.getVoices();
@@ -122,9 +123,7 @@ const App: React.FC = () => {
   const sayBunsie = (msg: string, mood: MascotMood = 'neutral', duration = 3000) => {
     setBunsieMsg(msg);
     setBunsieMood(mood);
-    setTimeout(() => {
-      setBunsieMood('neutral');
-    }, duration);
+    setTimeout(() => setBunsieMood('neutral'), duration);
   };
 
   /**
@@ -132,13 +131,15 @@ const App: React.FC = () => {
    * 1. Dictionary API (Human MP3)
    * 2. Google Translate TTS (High Quality AI)
    * 3. Browser SpeechSynthesis (Offline Robot)
+   * COPIED EXACTLY FROM YOUR WORKING FILE (with .trim() fix)
    */
   const playAudio = useCallback(async (text: string) => {
     if (!text) return;
+    const cleanText = text.trim(); // FIX: Removes invisible spaces that break audio
 
     // --- TIER 1: Dictionary API (Real Human Audio) ---
     try {
-      const response = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${text}`);
+      const response = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${cleanText}`);
       if (response.ok) {
         const data = await response.json();
         // Search through all phonetics for a valid audio link
@@ -154,9 +155,8 @@ const App: React.FC = () => {
     }
 
     // --- TIER 2: Google Translate TTS (AI Quality) ---
-    // This uses Google's high-quality voices instead of the browser default
     try {
-      const googleAudioUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=en&client=tw-ob`;
+      const googleAudioUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(cleanText)}&tl=en&client=tw-ob`;
       const audio = new Audio(googleAudioUrl);
       await audio.play();
       return; // Success! Exit.
@@ -171,7 +171,7 @@ const App: React.FC = () => {
     }
 
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
+    const utterance = new SpeechSynthesisUtterance(cleanText);
     
     if (voicesRef.current.length === 0) {
       voicesRef.current = window.speechSynthesis.getVoices();
@@ -194,16 +194,16 @@ const App: React.FC = () => {
 
   /**
    * --- HARSH PRONUNCIATION ANALYZER ---
-   * Detects specific phonetic mistakes based on text mismatch.
+   * COPIED EXACTLY FROM YOUR WORKING FILE
    */
   const analyzePronunciation = (target: string, transcript: string): string => {
     const t = target.toLowerCase();
     const s = transcript.toLowerCase();
 
-    // 1. Length Check (Did they say the whole word?)
+    // 1. Length Check
     if (s.length < t.length * 0.5) return "Too short! Did you pronounce all the syllables?";
 
-    // 2. Consonant Voicing (P vs B, T vs D, etc.)
+    // 2. Consonant Voicing
     if (t.includes('p') && s.replace(/b/g, 'p') === t) return "Watch your 'P' sound! It sounded like a 'B'. Add a puff of air!";
     if (t.includes('b') && s.replace(/p/g, 'b') === t) return "Careful! 'B' should be voiced. It sounded like 'P'.";
     if (t.includes('t') && s.replace(/d/g, 't') === t) return "Too soft! It sounded like a 'D' instead of 'T'.";
@@ -219,7 +219,7 @@ const App: React.FC = () => {
       return "Careful with R and L sounds! Check your tongue position.";
     }
 
-    // 5. Ending Sounds (Plurals/Past Tense)
+    // 5. Ending Sounds
     if (t.endsWith('s') && !s.endsWith('s')) return "Don't forget the 'S' sound at the end!";
     if (t.endsWith('ed') && !s.endsWith('ed') && !s.endsWith('t') && !s.endsWith('d')) return "Pronounce the past tense ending clearly.";
 
@@ -354,51 +354,23 @@ const App: React.FC = () => {
 
   const handleSpeechRecognition = () => {
     if (!speakingWord) return;
-    
-    // Improved Compatibility Check from your provided file
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      alert("Speech recognition is not supported in this browser. Try Chrome.");
-      return;
-    }
-
+    if (!SpeechRecognition) { alert("Speech recognition is not supported in this browser. Try Chrome."); return; }
     const recognition = new SpeechRecognition();
     recognition.lang = 'en-US';
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
-
     setIsRecording(true);
     setRecognitionResult(null);
-
     recognition.onresult = (event: any) => {
       const transcript = event.results[0][0].transcript.toLowerCase().trim();
       const target = speakingWord.english.toLowerCase().trim();
-      
       const isMatch = transcript === target;
-      
-      let feedback = "";
-      if (isMatch) {
-        feedback = "Perfect pronunciation!";
-      } else {
-        feedback = analyzePronunciation(target, transcript);
-      }
-
+      let feedback = isMatch ? "Perfect pronunciation!" : analyzePronunciation(target, transcript);
       setRecognitionResult({ text: transcript, correct: isMatch, feedback });
-      
-      if (isMatch) {
-        sayBunsie("Wow! You sounded like a native speaker!", "excited");
-      } else {
-        sayBunsie("Not quite. Check the feedback below!", "confused");
-      }
+      sayBunsie(isMatch ? "Wow! You sounded like a native speaker!" : "Not quite. Check the feedback below!", isMatch ? "excited" : "confused");
     };
-
-    recognition.onerror = (e: any) => {
-      setIsRecording(false);
-      if (e.error !== 'no-speech') {
-         sayBunsie("Microphone error. Check permissions.", "sad");
-      }
-    };
-
+    recognition.onerror = (e: any) => { setIsRecording(false); if(e.error !== 'no-speech') sayBunsie("Microphone error. Check permissions.", "sad"); };
     recognition.onend = () => setIsRecording(false);
     recognition.start();
   };
@@ -621,57 +593,44 @@ const App: React.FC = () => {
       {activeView === 'login' || activeView === 'register' ? renderLogin() : null}
       {(activeView === 'manage' || activeView === 'starred') && renderWordList()}
       {activeView === 'speaking' && renderSpeakingView()}
-      
-      {/* RESTORED QUIZ VIEW */}
-      {activeView === 'quiz' && (
-        quizState.currentWord ? (
-          <div className="py-10 max-w-2xl mx-auto">
-            <div className={`p-8 kawaii-card shadow-2xl ${isDarkMode ? 'bg-[#16213E]' : 'bg-white'}`}>
-              <div className="text-center mb-10">
-                <h2 className={`text-6xl font-black mb-6 tracking-tight ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>{quizState.currentWord.english}</h2>
-                <button onClick={() => playAudio(quizState.currentWord!.english)} className={`p-4 rounded-3xl transition-all active:scale-110 ${isDarkMode ? 'bg-cyan-500 text-white' : 'bg-pink-100 text-pink-500'}`}><Volume2 size={32} /></button>
-              </div>
-              <div className="space-y-6">
-                <input disabled={quizState.isChecking} placeholder="POS" className={`w-full p-4 rounded-2xl border-2 outline-none ${isDarkMode ? 'bg-[#1A1A2E] border-white/10 text-white focus:border-cyan-500' : 'bg-gray-50 border-gray-100 focus:border-pink-300'}`} value={quizState.userInput.pos} onChange={e => setQuizState({...quizState, userInput: {...quizState.userInput, pos: e.target.value}})} />
-                <input disabled={quizState.isChecking} placeholder="Vietnamese" className={`w-full p-4 rounded-2xl border-2 outline-none ${isDarkMode ? 'bg-[#1A1A2E] border-white/10 text-white focus:border-cyan-500' : 'bg-gray-50 border-gray-100 focus:border-pink-300'}`} value={quizState.userInput.vietnamese} onChange={e => setQuizState({...quizState, userInput: {...quizState.userInput, vietnamese: e.target.value}})} />
-                <textarea disabled={quizState.isChecking} placeholder="Use it in a sentence..." className={`w-full h-24 p-4 rounded-2xl border-2 outline-none ${isDarkMode ? 'bg-[#1A1A2E] border-white/10 text-white focus:border-cyan-500' : 'bg-gray-50 border-gray-100 focus:border-pink-300'}`} value={quizState.userInput.example} onChange={e => setQuizState({...quizState, userInput: {...quizState.userInput, example: e.target.value}})} />
-                {!quizState.isChecking ? (<button onClick={() => setQuizState({...quizState, isChecking: true})} className={`w-full text-white font-bold p-5 rounded-2xl shadow-xl ${isDarkMode ? 'bg-cyan-500' : 'bg-pink-500'}`}>Check My Answer!</button>) : (
-                  <div className="animate-in slide-in-from-bottom pt-8">
-                     <div className={`p-5 rounded-3xl mb-4 ${isDarkMode ? 'bg-green-500/10 border-green-500/20' : 'bg-green-50'}`}>
-                        <p className={`font-bold uppercase text-xs mb-2 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`}>Correct Answer</p>
-                        <h3 className={`text-2xl font-bold mb-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{quizState.currentWord.english}</h3>
-                        <div className="flex items-center gap-2 mb-4">
-                           <span className={`text-xs px-2 py-1 rounded-full font-bold uppercase ${isDarkMode ? 'bg-green-500/20 text-green-300' : 'bg-green-100 text-green-700'}`}>{quizState.currentWord.pos}</span>
-                           <span className={`text-lg ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>{quizState.currentWord.vietnamese}</span>
-                        </div>
-                        <div className={`mt-4 pt-4 border-t ${isDarkMode ? 'border-white/10' : 'border-green-200'}`}>
-                           <p className={`text-xs font-bold uppercase mb-2 opacity-70 ${isDarkMode ? 'text-white' : 'text-gray-700'}`}>Examples:</p>
-                           {quizState.currentWord.examples.map((ex, i) => (
-                              <p key={i} className={`text-sm italic mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                                 "{ex}"
-                              </p>
-                           ))}
-                        </div>
-                     </div>
-                     <div className="flex gap-4"><button onClick={() => handleSelfGrade(false)} className={`flex-1 p-5 rounded-2xl font-bold ${isDarkMode ? 'bg-white/10' : 'bg-gray-100'}`}>I was Wrong</button><button onClick={() => handleSelfGrade(true)} className="flex-1 bg-green-500 text-white p-5 rounded-2xl font-bold shadow-lg">I was Right!</button></div>
-                  </div>
-                )}
-              </div>
+      {activeView === 'quiz' && quizState.currentWord ? (
+        <div className="py-10 max-w-2xl mx-auto">
+          <div className={`p-8 kawaii-card shadow-2xl ${isDarkMode ? 'bg-[#16213E]' : 'bg-white'}`}>
+            <div className="text-center mb-10">
+              <h2 className={`text-6xl font-black mb-6 tracking-tight ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>{quizState.currentWord.english}</h2>
+              <button onClick={() => playAudio(quizState.currentWord!.english)} className={`p-4 rounded-3xl transition-all active:scale-110 ${isDarkMode ? 'bg-cyan-500 text-white' : 'bg-pink-100 text-pink-500'}`}><Volume2 size={32} /></button>
+            </div>
+            <div className="space-y-6">
+              <input disabled={quizState.isChecking} placeholder="POS" className={`w-full p-4 rounded-2xl border-2 outline-none ${isDarkMode ? 'bg-[#1A1A2E] border-white/10 text-white focus:border-cyan-500' : 'bg-gray-50 border-gray-100 focus:border-pink-300'}`} value={quizState.userInput.pos} onChange={e => setQuizState({...quizState, userInput: {...quizState.userInput, pos: e.target.value}})} />
+              <input disabled={quizState.isChecking} placeholder="Vietnamese" className={`w-full p-4 rounded-2xl border-2 outline-none ${isDarkMode ? 'bg-[#1A1A2E] border-white/10 text-white focus:border-cyan-500' : 'bg-gray-50 border-gray-100 focus:border-pink-300'}`} value={quizState.userInput.vietnamese} onChange={e => setQuizState({...quizState, userInput: {...quizState.userInput, vietnamese: e.target.value}})} />
+              <textarea disabled={quizState.isChecking} placeholder="Use it in a sentence..." className={`w-full h-24 p-4 rounded-2xl border-2 outline-none ${isDarkMode ? 'bg-[#1A1A2E] border-white/10 text-white focus:border-cyan-500' : 'bg-gray-50 border-gray-100 focus:border-pink-300'}`} value={quizState.userInput.example} onChange={e => setQuizState({...quizState, userInput: {...quizState.userInput, example: e.target.value}})} />
+              {!quizState.isChecking ? (<button onClick={() => setQuizState({...quizState, isChecking: true})} className={`w-full text-white font-bold p-5 rounded-2xl shadow-xl ${isDarkMode ? 'bg-cyan-500' : 'bg-pink-500'}`}>Check My Answer!</button>) : (
+                <div className="animate-in slide-in-from-bottom duration-500 border-t border-white/10 pt-8">
+                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+                      <div className={`p-5 rounded-3xl ${isDarkMode ? 'bg-red-500/10 border-red-500/20' : 'bg-red-50'}`}><p className="text-[10px] font-bold opacity-50 uppercase">Your Guess</p><p className="font-bold text-lg">{quizState.userInput.vietnamese || '---'}</p></div>
+                      <div className={`p-5 rounded-3xl ${isDarkMode ? 'bg-green-500/10 border-green-500/20' : 'bg-green-50'}`}><p className="text-[10px] font-bold opacity-50 uppercase">Correct Data</p><p className="font-bold text-lg">{quizState.currentWord.vietnamese}</p><p className="text-xs italic opacity-60">{quizState.currentWord.pos}</p></div>
+                   </div>
+                   <div className={`p-5 rounded-3xl mb-8 ${isDarkMode ? 'bg-white/5' : 'bg-indigo-50'}`}>
+                      <p className="text-[10px] font-bold opacity-50 uppercase mb-3">Context & Examples</p>
+                      {quizState.currentWord.examples.map((ex, i) => (<p key={i} className="text-xs italic mb-2"><span className="text-pink-500 font-bold mr-2">•</span>{ex}</p>))}
+                   </div>
+                   <div className="flex gap-4"><button onClick={() => handleSelfGrade(false)} className={`flex-1 p-5 rounded-2xl font-bold ${isDarkMode ? 'bg-white/10' : 'bg-gray-100'}`}>I was Wrong</button><button onClick={() => handleSelfGrade(true)} className="flex-1 bg-green-500 text-white p-5 rounded-2xl font-bold shadow-lg">I was Right!</button></div>
+                </div>
+              )}
             </div>
           </div>
-        ) : (
-          <div className="text-center py-20 animate-in fade-in duration-1000">
-             <Mascot size="w-40 h-40" className="mx-auto mb-10" mood="happy" />
-             <h2 className={`text-4xl font-black mb-4 tracking-tight ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>Spaced Repetition Review</h2>
-             <p className="opacity-60 mb-10">Bunsie organized a smart session for you!</p>
-             <div className="flex flex-col sm:flex-row gap-4 justify-center">
-               <button onClick={() => startQuiz('smart')} className={`text-white font-bold px-12 py-5 rounded-3xl shadow-2xl transition-all text-xl flex items-center gap-2 ${isDarkMode ? 'bg-cyan-500' : 'bg-pink-500'}`}><Brain size={24} /> Hop into Practice!</button>
-               <button onClick={() => startQuiz('random')} className={`font-bold px-12 py-5 rounded-3xl shadow-xl transition-all text-xl flex items-center gap-2 ${isDarkMode ? 'bg-white/5 text-white border border-white/10 hover:bg-white/10' : 'bg-white text-gray-800 border-gray-200 hover:bg-gray-50'}`}><Shuffle size={24} /> Surprise Me!</button>
-             </div>
-          </div>
-        )
-      )}
-      
+        </div>
+      ) : activeView === 'quiz' ? (
+        <div className="text-center py-20 animate-in fade-in duration-1000">
+           <Mascot size="w-40 h-40" className="mx-auto mb-10" mood="happy" />
+           <h2 className={`text-4xl font-black mb-4 tracking-tight ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>Spaced Repetition Review</h2>
+           <p className="opacity-60 mb-10">Bunsie organized a smart session for you!</p>
+           <div className="flex flex-col sm:flex-row gap-4 justify-center">
+             <button onClick={() => startQuiz('smart')} className={`text-white font-bold px-12 py-5 rounded-3xl shadow-2xl transition-all text-xl flex items-center gap-2 ${isDarkMode ? 'bg-cyan-500' : 'bg-pink-500'}`}><Brain size={24} /> Hop into Practice!</button>
+             <button onClick={() => startQuiz('random')} className={`font-bold px-12 py-5 rounded-3xl shadow-xl transition-all text-xl flex items-center gap-2 ${isDarkMode ? 'bg-white/5 text-white border border-white/10 hover:bg-white/10' : 'bg-white text-gray-800 border-gray-200 hover:bg-gray-50'}`}><Shuffle size={24} /> Surprise Me!</button>
+           </div>
+        </div>
+      ) : null}
       {activeView === 'stats' && renderStats()}
     </Layout>
   );
