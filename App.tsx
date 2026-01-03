@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { View, User, Word, QuizState, DailyProgress } from './types';
 import { Layout } from './components/Layout';
 import { Mascot, MascotMood } from './components/Mascot';
-import { processWords } from './services/gemini';
 import { Volume2, Plus, Trash2, CheckCircle2, XCircle, Search, Star, Mic, RotateCcw, 
 ChevronDown, ChevronUp, Shuffle, Brain } from 'lucide-react';
 import { processWords, getGeminiAudio } from './services/gemini';
@@ -125,6 +124,45 @@ const App: React.FC = () => {
     setBunsieMsg(msg);
     setBunsieMood(mood);
     setTimeout(() => setBunsieMood('neutral'), duration);
+  };
+
+/**
+   * Gemini Fallback TTS
+   * Use this when browser synthesis fails or isn't high quality.
+   */
+  const playGeminiTTS = async (text: string) => {
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-preview-tts",
+        contents: [{ parts: [{ text: `Say naturally: ${text}` }] }],
+        config: {
+          responseModalities: [Modality.AUDIO],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: 'Puck' },
+            },
+          },
+        },
+      });
+
+      const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      if (!base64Audio) throw new Error("No audio returned from Gemini");
+
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+      }
+      
+      const ctx = audioContextRef.current;
+      const audioBuffer = await decodeRawPcm(base64ToUint8Array(base64Audio), ctx, 24000, 1);
+      
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(ctx.destination);
+      source.start();
+    } catch (err) {
+      console.error("Gemini TTS fallback failed:", err);
+    }
   };
 
   /**
